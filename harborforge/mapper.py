@@ -8,8 +8,10 @@ directly for more control.
 
 import shutil
 import stat
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -38,28 +40,37 @@ class DataMapper(ABC):
     def setup(self) -> None:
         """Download or prepare raw data before mapping. No-op by default."""
 
-    def map(self, output_dir: Path, registry_path: Path | None = None) -> int:
+    def map(self, output_dir: Path, registry_path: Path | None = None, workers: int = 1) -> int:
         """
         Write all tasks to output_dir as Harbor task directories.
         Wipes and recreates output_dir on each call.
         If registry_path is given, auto-generates a Harbor registry.json.
+        workers > 1 parallelises _write_task calls (useful when enrichments make LLM calls).
         Returns the number of tasks written.
         """
         if output_dir.exists():
             shutil.rmtree(output_dir)
 
+        tasks = list(self.iter_tasks())
         total = 0
-        current_dataset = ""
-        for task_id, dir_name, handler, task_data in self.iter_tasks():
+        lock = threading.Lock()
+
+        def _write(item: tuple) -> None:
+            nonlocal total
+            task_id, dir_name, handler, task_data = item
             self._write_task(output_dir / dir_name, task_id, handler, task_data)
-            total += 1
-            dataset = dir_name.split("/")[0]
-            if dataset != current_dataset:
-                if current_dataset:
-                    print()
-                current_dataset = dataset
-                print(f"  ↳ {dataset}", end="", flush=True)
-            print(f"\r  ↳ {dataset} ({total} written)", end="", flush=True)
+            with lock:
+                total += 1
+                dataset = dir_name.split("/")[0]
+                print(f"\r  ↳ {dataset} ({total}/{len(tasks)} written)", end="", flush=True)
+
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                list(ex.map(_write, tasks))
+        else:
+            for item in tasks:
+                _write(item)
+
         if total:
             print()
 
@@ -73,13 +84,13 @@ class DataMapper(ABC):
 
         return total
 
-    def run(self, output_dir: Path, registry_path: Path | None = None) -> None:
+    def run(self, output_dir: Path, registry_path: Path | None = None, workers: int = 1) -> None:
         """
         Standard entry point: setup() → map() → optional registry.
         Adapters call this from __main__.py.
         """
         self.setup()
-        total = self.map(output_dir, registry_path)
+        total = self.map(output_dir, registry_path, workers=workers)
         print(f"📊 Total tasks written: {total}")
 
     # ---------------------------------------------------------------------------
