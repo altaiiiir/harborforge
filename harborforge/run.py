@@ -102,7 +102,6 @@ def run(
     # Forward handler-declared artifacts and verifier env vars
     handler = handler_registry.get(dataset_name)
 
-
     artifacts = list(args.artifact or [])
     if handler:
         for path in handler.artifacts():
