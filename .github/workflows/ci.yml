@@ -24,7 +24,7 @@ jobs:
       - name: Tests
         run: uv run pytest tests/ -v
 
-  tag:
+  release:
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -34,18 +34,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Tag if version changed
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Check if version changed
+        id: version
         run: |
-          VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          TAG="v$VERSION"
           if git diff HEAD~1 HEAD -- pyproject.toml | grep -q "^+version"; then
-            if git ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
-              echo "Tag $TAG already exists — skipping"
-            else
-              git tag "$TAG"
-              git push origin "$TAG"
-              echo "Tagged $TAG"
-            fi
+            VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "tag=v$VERSION" >> $GITHUB_OUTPUT
           else
-            echo "Version unchanged — skipping tag"
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
+      - name: Tag
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+      - name: Build and publish to PyPI
+        if: steps.version.outputs.changed == 'true'
+        run: uv build && uv publish --token ${{ secrets.PYPI_TOKEN }}
+      - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: dist/*
+          generate_release_notes: true
