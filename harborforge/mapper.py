@@ -150,9 +150,11 @@ class DataMapper(ABC):
 
         # SEPARATE mode: write verifier Dockerfile into tests/ (Harbor's verifier build context).
         # COPY test.sh into the image so Harbor can execute /tests/test.sh inside the container.
+        # If verifier_image_tag() is set, use the pre-built image as FROM to skip slow layers.
         if verifier_df is not None:
+            image_tag = handler.verifier_image_tag(task_data)
+            base = f"FROM {image_tag}" if image_tag else verifier_df.rstrip()
             verifier_df_with_copy = (
-                verifier_df.rstrip()
-                + "\nCOPY test.sh /tests/test.sh\nRUN chmod +x /tests/test.sh\n"
+                base + "\nCOPY test.sh /tests/test.sh\nRUN chmod +x /tests/test.sh\n"
             )
             (tests_dir / "Dockerfile").write_text(verifier_df_with_copy, encoding="utf-8")

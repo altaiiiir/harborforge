@@ -40,6 +40,15 @@ class DatasetHandler(ABC):
         """
         return None
 
+    def verifier_image_tag(self, task_data: dict[str, Any]) -> str | None:
+        """Return a pre-built Docker image tag for the verifier base, or None to build from scratch.
+
+        When non-None, tests/Dockerfile will use this as its FROM instead of the full
+        verifier_dockerfile() content. The slow layers (e.g. pip installs) are pre-built
+        into this image via `just build`, so per-trial builds only need to COPY test.sh.
+        """
+        return None
+
     def setup(self) -> None:
         """Download or prepare local data required by this dataset. No-op by default."""
 

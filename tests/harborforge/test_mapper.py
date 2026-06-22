@@ -27,8 +27,8 @@ class _StubHandler(DatasetHandler):
 
 
 class _StubMapper(DataMapper):
-    def __init__(self, tasks: list[tuple[str, str, DatasetHandler, dict]]):
-        super().__init__()
+    def __init__(self, tasks: list[tuple[str, str, DatasetHandler, dict]], **kwargs: Any):
+        super().__init__(**kwargs)
         self._tasks = tasks
 
     def iter_tasks(self) -> Iterator[tuple[str, str, DatasetHandler, dict[str, Any]]]:
@@ -162,6 +162,11 @@ class _HandlerWithVerifier(_StubHandler):
         return "FROM python:3.11-slim\nWORKDIR /verifier\n"
 
 
+class _HandlerWithVerifierImageTag(_HandlerWithVerifier):
+    def verifier_image_tag(self, task_data):
+        return "my-verifier:latest"
+
+
 class TestMapperSeparateVerifier:
     def test_separate_verifier_writes_verifier_dockerfile(self, tmp_path):
         mapper = _StubMapper([("t/0", "t/0", _HandlerWithVerifier(), {})])
@@ -179,3 +184,58 @@ class TestMapperSeparateVerifier:
         mapper.map(tmp_path)
         toml = (tmp_path / "t/0/task.toml").read_text()
         assert "[verifier.environment]" not in toml
+
+    def test_verifier_image_tag_used_as_from(self, tmp_path):
+        mapper = _StubMapper([("t/0", "t/0", _HandlerWithVerifierImageTag(), {})])
+        mapper.map(tmp_path)
+        df = (tmp_path / "t/0/tests/Dockerfile").read_text()
+        assert df.startswith("FROM my-verifier:latest")
+
+    def test_no_image_tag_uses_full_dockerfile(self, tmp_path):
+        mapper = _StubMapper([("t/0", "t/0", _HandlerWithVerifier(), {})])
+        mapper.map(tmp_path)
+        df = (tmp_path / "t/0/tests/Dockerfile").read_text()
+        assert "FROM python:3.11-slim" in df
+
+
+class _AppendingEnrichment:
+    def extra_instruction(self, task_data):
+        return "## Extra\ninjected content"
+
+    def mcp_servers(self, task_data):
+        return []
+
+
+class TestMapperEnrichments:
+    def test_enrichment_appended_to_instruction(self, tmp_path):
+        mapper = _StubMapper(
+            [("t/0", "t/0", _HANDLER, {"instruction": "Base"})],
+            enrichments=[_AppendingEnrichment()],
+        )
+        mapper.map(tmp_path)
+        content = (tmp_path / "t/0/instruction.md").read_text()
+        assert "Base" in content
+        assert "## Extra" in content
+        assert "injected content" in content
+
+    def test_enrichment_none_skipped(self, tmp_path):
+        class _NullEnrichment:
+            def extra_instruction(self, task_data):
+                return None
+
+            def mcp_servers(self, task_data):
+                return []
+
+        mapper = _StubMapper(
+            [("t/0", "t/0", _HANDLER, {"instruction": "Base"})],
+            enrichments=[_NullEnrichment()],
+        )
+        mapper.map(tmp_path)
+        content = (tmp_path / "t/0/instruction.md").read_text()
+        assert content == "Base"
+
+    def test_no_enrichments_instruction_unchanged(self, tmp_path):
+        mapper = _make_mapper(("t/0", "t/0", _HANDLER, {"instruction": "Base"}))
+        mapper.map(tmp_path)
+        content = (tmp_path / "t/0/instruction.md").read_text()
+        assert content == "Base"
