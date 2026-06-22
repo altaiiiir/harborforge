@@ -1,6 +1,6 @@
 [project]
 name = "harborforge"
-version = "1.0.2"
+version = "1.0.3"
 description = "Forge Harbor task directories from any evaluation benchmark"
 readme = "readme.md"
 license = { text = "MIT" }
