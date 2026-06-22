@@ -63,11 +63,13 @@ def run(
     job_name = f"{job_name_prefix}__{task_slug}__{int(time.time()) % 100_000}"
     harbor_bin = Path(sys.executable).parent / "harbor"
 
+    dataset_name = args.task.split("/")[0]
+
     if _is_single_task(args.task):
         task_path = tasks_dir / args.task
         if not task_path.exists():
             raise SystemExit(f"Task not found: {task_path}")
-        source_flags = ["-p", str(task_path)]
+        source_flags = ["-p", str(task_path), "-d", dataset_name]
     else:
         if not registry_path.exists():
             raise SystemExit(f"registry.json not found at {registry_path} — run 'just data' first")
@@ -98,8 +100,8 @@ def run(
         cmd += ["--force-build"]
 
     # Forward handler-declared artifacts and verifier env vars
-    dataset_name = args.task.split("/")[0]
     handler = handler_registry.get(dataset_name)
+
 
     artifacts = list(args.artifact or [])
     if handler:
