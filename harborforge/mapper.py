@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from .enrichment import TaskEnrichment
 from .handlers.base import DatasetHandler
 
 
@@ -24,7 +25,11 @@ class DataMapper(ABC):
       1. Implement `iter_tasks()` to yield tasks.
       2. Optionally override `setup()` to download/prepare raw data.
       3. Call `run()` as the entry point — it handles setup, mapping, and registry.
+      4. Optionally pass `enrichments` to inject extra instruction text or MCP servers per task.
     """
+
+    def __init__(self, enrichments: list[TaskEnrichment] | None = None) -> None:
+        self.enrichments: list[TaskEnrichment] = enrichments or []
 
     # ---------------------------------------------------------------------------
     # Public API
@@ -105,7 +110,12 @@ class DataMapper(ABC):
     ) -> None:
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        (task_dir / "instruction.md").write_text(handler.instruction(task_data), encoding="utf-8")
+        instruction = handler.instruction(task_data)
+        for enrichment in self.enrichments:
+            extra = enrichment.extra_instruction(task_data)
+            if extra:
+                instruction += f"\n\n{extra}"
+        (task_dir / "instruction.md").write_text(instruction, encoding="utf-8")
 
         env_dir = task_dir / "environment"
         env_dir.mkdir(exist_ok=True)
@@ -123,6 +133,12 @@ class DataMapper(ABC):
         verifier_df = handler.verifier_dockerfile(task_data)
         if verifier_df is not None:
             task_toml += "\n[verifier.environment]\nbuild_timeout_sec = 300.0\n"
+
+        for enrichment in self.enrichments:
+            for server in enrichment.mcp_servers(task_data):
+                task_toml += "\n[[environment.mcp_servers]]\n" + "".join(
+                    f'{k} = "{v}"\n' for k, v in server.items()
+                )
 
         (task_dir / "task.toml").write_text(task_toml, encoding="utf-8")
 

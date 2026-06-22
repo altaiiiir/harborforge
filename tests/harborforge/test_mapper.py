@@ -28,6 +28,7 @@ class _StubHandler(DatasetHandler):
 
 class _StubMapper(DataMapper):
     def __init__(self, tasks: list[tuple[str, str, DatasetHandler, dict]]):
+        super().__init__()
         self._tasks = tasks
 
     def iter_tasks(self) -> Iterator[tuple[str, str, DatasetHandler, dict[str, Any]]]:
